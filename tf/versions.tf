@@ -1,0 +1,1 @@
+# This file is now obsolete as all provider configurations have been moved to main.tf 

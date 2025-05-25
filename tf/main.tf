@@ -1,11 +1,45 @@
 terraform {
+  required_version = ">= 1.2.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    datadog = {
+      source  = "DataDog/datadog"
+      version = "~> 3.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
-  required_version = ">= 1.2.0"
+  
+  # Uncomment this block to use an S3 backend for state storage
+  # backend "s3" {
+  #   bucket         = "terraform-state-bucket-name"
+  #   key            = "aws-datadog-monitoring/terraform.tfstate"
+  #   region         = "us-east-1"
+  #   encrypt        = true
+  #   dynamodb_table = "terraform-lock-table"
+  # }
+}
+
+# Configure the AWS Provider
+provider "aws" {
+  region = var.aws_region
+}
+
+# Configure the Datadog Provider
+provider "datadog" {
+  api_key = "644b1aa9e093ab067228c799e88837cc"
+  app_key = "e108d9a6e9f597a68c8adaa43911afd0b8843b62"
+  validate = false
+}
+
+# Provider configuration for random
+provider "random" {
+  # No configuration needed for the random provider
 }
 
 # Outputs for easy access to resources
@@ -34,18 +68,30 @@ output "s3_bucket_name" {
   description = "The name of the S3 bucket storing the application code"
 }
 
-# New outputs for AMI information
-output "current_instance_ami" {
-  value       = aws_instance.backend.ami
-  description = "The current AMI ID used by the instances"
+output "aws_account_number" {
+  value       = data.aws_caller_identity.current.account_id
+  description = "The AWS account number"
 }
 
-output "amazon_linux_2_latest_ami" {
-  value       = data.aws_ami.amazon_linux_2.id
-  description = "The latest Amazon Linux 2 AMI ID"
+output "datadog_aws_role_name" {
+  value       = aws_iam_role.datadog_integration_role.name
+  description = "The name of the IAM role for Datadog integration"
 }
 
-output "amazon_linux_2023_latest_ami" {
-  value       = data.aws_ami.amazon_linux_2023.id
-  description = "The latest Amazon Linux 2023 AMI ID"
+output "datadog_integration_setup_instructions" {
+  value = <<EOT
+To set up the Datadog AWS integration manually:
+    
+1. Log in to your Datadog account
+2. Go to Integrations > AWS
+3. Click on "Add an AWS Account" 
+4. Use the following values:
+   - AWS Account ID: ${data.aws_caller_identity.current.account_id}
+   - Role Name: ${aws_iam_role.datadog_integration_role.name}
+   - External ID: ${random_string.datadog_external_id.result}
+    
+For more detailed instructions, refer to the docs/DATADOG_INTEGRATION.md file.
+
+EOT
+  description = "Instructions for setting up the Datadog AWS integration"
 }

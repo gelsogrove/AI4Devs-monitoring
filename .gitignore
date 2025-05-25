@@ -30,7 +30,37 @@ yarn-error.log*
 
 # .env
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+.terraform.lock.hcl
 
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+.env
+
+# Build artifacts
+dist/
+build/
+*.zip
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# OS specific
+.DS_Store
+Thumbs.db
 
 # Archivos ZIP generados
 **/*.zip
