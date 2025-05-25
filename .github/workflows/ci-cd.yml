@@ -1,0 +1,192 @@
+name: CI/CD Pipeline
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        npm install
+        
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm install
+        
+    - name: Run backend tests
+      run: |
+        cd backend
+        npm test
+        
+    - name: Build backend
+      run: |
+        cd backend
+        npm run build
+        
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+        
+    - name: Install Docker
+      uses: docker/setup-buildx-action@v2
+        
+    - name: Install Docker Compose
+      run: |
+        sudo curl -L "https://github.com/docker/compose/releases/download/v2.19.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+        
+    - name: Start database services
+      run: docker-compose up -d
+      
+    - name: Wait for database to be ready
+      run: |
+        # Wait for database to be ready (adjust command based on your DB type)
+        timeout 60s bash -c 'until docker-compose exec -T db pg_isready 2>/dev/null; do echo "Waiting for database..."; sleep 2; done'
+        echo "Database is ready!"
+      
+    - name: Run Prisma migrations
+      run: |
+        cd backend
+        npx prisma migrate deploy
+        
+    - name: Install Nginx
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y nginx
+        
+    - name: Configure Nginx as reverse proxy
+      run: |
+        echo 'server {
+          listen 80;
+          
+          location /api {
+            proxy_pass http://localhost:8080;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          }
+          
+          location / {
+            proxy_pass http://localhost:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          }
+        }' | sudo tee /etc/nginx/sites-available/default
+        sudo nginx -t
+        sudo systemctl restart nginx
+        
+    - name: Start backend in background
+      run: |
+        cd backend
+        npm start &
+        echo "Waiting for backend to start..."
+        # Wait for backend to be ready
+        timeout 30s bash -c 'until curl -s http://localhost:8080/health || curl -s http://localhost:8080/api/health; do echo "Waiting for backend..."; sleep 2; done'
+        echo "Backend is ready!"
+        
+    - name: Start frontend in background
+      run: |
+        cd frontend
+        npm start &
+        echo "Waiting for frontend to start..."
+        # Wait for frontend to be ready
+        timeout 30s bash -c 'until curl -s http://localhost:3000; do echo "Waiting for frontend..."; sleep 2; done'
+        echo "Frontend is ready!"
+        
+    - name: Wait for all services to be stable
+      run: sleep 10 # Give extra time for all services to stabilize
+        
+    - name: Run Cypress tests
+      run: |
+        cd frontend
+        npm run cypress:run
+  
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+        
+    - name: Upload backend to S3
+      run: |
+        aws s3 cp ./backend s3://${{ secrets.AWS_S3_BUCKET }}/backend --recursive
+        
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_PRIVATE_KEY }}
+        script: |
+          # Download backend from S3
+          aws s3 cp s3://${{ secrets.AWS_S3_BUCKET }}/backend ~/backend --recursive
+          
+          # Install dependencies and build
+          cd ~/backend
+          npm install
+          npm run build
+          
+          # Run migrations
+          npx prisma migrate deploy
+          
+          # Install and configure Nginx if not already done
+          if ! command -v nginx &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y nginx
+          fi
+          
+          # Configure Nginx to proxy to the backend on port 80
+          echo 'server {
+            listen 80;
+            
+            location / {
+              proxy_pass http://localhost:8080;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade $http_upgrade;
+              proxy_set_header Connection "upgrade";
+              proxy_set_header Host $host;
+              proxy_cache_bypass $http_upgrade;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            }
+          }' | sudo tee /etc/nginx/sites-available/default
+          sudo nginx -t
+          sudo systemctl restart nginx
+          
+          # Restart the application in background (using PM2)
+          pm2 restart backend || pm2 start npm --name "backend" -- start 
