@@ -1,20 +1,27 @@
 #!/bin/bash
-yum update -y
-sudo yum install -y docker
+# Update system and install dependencies
+sudo yum update -y
+sudo yum install -y docker unzip aws-cli
 
-# Iniciar el servicio de Docker
-sudo service docker start
+# Start and enable Docker service
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker ec2-user
 
-# Descargar y descomprimir el archivo backend.zip desde S3
-aws s3 cp s3://ai4devs-project-code-bucket/backend.zip /home/ec2-user/backend.zip
-unzip /home/ec2-user/backend.zip -d /home/ec2-user/
+# Create app directory
+mkdir -p /home/ec2-user/app
 
-# Construir la imagen Docker para el backend
-cd /home/ec2-user/backend
-sudo docker build -t lti-backend .
+# Download and extract the backend.zip from S3
+aws s3 cp s3://${bucket_name}/backend.zip /home/ec2-user/app/backend.zip
+cd /home/ec2-user/app
+unzip -o backend.zip
 
-# Ejecutar el contenedor Docker
-sudo docker run -d -p 8080:8080 lti-backend
+# Build the Docker image for backend
+cd /home/ec2-user/app/backend
+sudo docker build -t lti-recruiter-backend .
 
-# Timestamp to force update
-echo "Timestamp: ${timestamp}"
+# Run the backend container
+sudo docker run -d --name lti-backend -p 8080:8080 lti-recruiter-backend
+
+# Timestamp to force update when needed
+echo "Deployment timestamp: ${timestamp}"

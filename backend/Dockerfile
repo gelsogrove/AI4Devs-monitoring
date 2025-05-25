@@ -1,17 +1,18 @@
 # Usar una imagen base de Node.js
-FROM node:23.8.0-alpine3.21
+FROM node:18-alpine
 
 # Establecer el directorio de trabajo
-WORKDIR /usr/src/app
-
-# Instalar OpenSSL y otras dependencias necesarias para Prisma
-RUN apk add --no-cache openssl openssl-dev libc6-compat
+WORKDIR /app
 
 # Copiar los archivos de package.json y package-lock.json
 COPY package*.json ./
+RUN npm ci
 
-# Instalar las dependencias
-RUN npm install
+# Copiar el esquema de Prisma
+COPY prisma ./prisma/
+
+# Generar el cliente de Prisma
+RUN npx prisma generate
 
 # Copiar el resto del código de la aplicación
 COPY . .
@@ -19,10 +20,12 @@ COPY . .
 # Construir la aplicación
 RUN npm run build
 
-RUN npm run prisma:generate
-
 # Exponer el puerto 8080
 EXPOSE 8080
 
-# Comando para ejecutar la aplicación
-CMD ["npm", "run", "start:prod"]
+# Establecer variables de entorno
+ENV NODE_ENV=production
+ENV PORT=8080
+
+# Ejecutar migraciones y iniciar la aplicación
+CMD npx prisma migrate deploy && npm start

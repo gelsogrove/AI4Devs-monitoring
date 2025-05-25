@@ -1,20 +1,27 @@
 #!/bin/bash
+# Update system and install dependencies
 sudo yum update -y
-sudo yum install -y docker
+sudo yum install -y docker unzip aws-cli
 
-# Iniciar el servicio de Docker
-sudo service docker start
+# Start and enable Docker service
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker ec2-user
 
-# Descargar y descomprimir el archivo frontend.zip desde S3
-aws s3 cp s3://ai4devs-project-code-bucket/frontend.zip /home/ec2-user/frontend.zip
-unzip /home/ec2-user/frontend.zip -d /home/ec2-user/
+# Create app directory
+mkdir -p /home/ec2-user/app
 
-# Construir la imagen Docker para el frontend
-cd /home/ec2-user/frontend
-sudo docker build -t lti-frontend .
+# Download and extract the frontend.zip from S3
+aws s3 cp s3://${bucket_name}/frontend.zip /home/ec2-user/app/frontend.zip
+cd /home/ec2-user/app
+unzip -o frontend.zip
 
-# Ejecutar el contenedor Docker
-sudo docker run -d -p 3000:3000 lti-frontend
+# Build the Docker image for frontend
+cd /home/ec2-user/app/frontend
+sudo docker build -t lti-recruiter-frontend .
 
-# Timestamp to force update
-echo "Timestamp: ${timestamp}"
+# Run the frontend container
+sudo docker run -d --name lti-frontend -p 3000:3000 lti-recruiter-frontend
+
+# Timestamp to force update when needed
+echo "Deployment timestamp: ${timestamp}"

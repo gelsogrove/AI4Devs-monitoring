@@ -29,3 +29,10 @@ yarn-error.log*
 .vscode
 
 # .env
+
+
+
+# Archivos ZIP generados
+**/*.zip
+backend.zip
+frontend.zip
